@@ -15,10 +15,15 @@
 #include "material.h"
 #include "mpi_communicator.h"
 #include "io.h"
+#include "crack.h"
 
 namespace loading {
   class HeatSource;
   class Loading;
+}
+
+namespace geom {
+  class Fracture;
 }
 
 
@@ -42,8 +47,7 @@ public:
     libMesh::ExplicitSystem& theta_dot_system,
     libMesh::ExplicitSystem& mechanical_system,
     inp::MaterialDeck& deck, 
-    double dt, 
-    std::unique_ptr<loading::HeatSource> heat_source_p);
+    double dt);
 
   /*!
    * @brief Initialize the systems and compute static quantities
@@ -74,7 +78,7 @@ public:
 
   void assembleHeatRHS(const double& time);
 
-  void updateTheta();
+  void updateThetaAndDamage();
 
   void advance();
 
@@ -149,13 +153,17 @@ public:
   std::vector<double> d_theta;             //!< Volumetric strain at nodes
   std::vector<double> d_theta_old;         //!< Volumetric strain at nodes
   std::vector<double> d_theta_dot;         //!< Volumetric strain rate at nodes
+  std::vector<double> d_damage;         //!< Damage at nodes
   std::vector<libMesh::Point> d_force;     //!< Force at nodes
   std::vector<std::vector<libMesh::dof_id_type>> d_neighbor_list; //!< Neighbor list at nodes
-  std::vector<std::vector<uint8_t>> d_fracture; //!< Fracture status at nodes
   std::vector<std::vector<double>> d_neighbor_volume;       //!< Neighbor volume for integration
   std::vector<double> d_nodal_volume; //!< Nodal volume for integration
   std::vector<uint8_t> d_displacement_fixed;  //!< Fixed nodes (three bits for x, y, z)
   std::vector<uint8_t> d_force_fixed;  //!< Specified force nodes (three bits for x, y, z)
+
+  // fracture
+  std::vector<geom::EdgeCrack> d_edge_cracks; //!< Edge cracks
+  std::unique_ptr<geom::Fracture> d_fracture_p; //!< Fracture model
 
   // Material properties
   std::shared_ptr<material::Material> d_material_p;  //!< Material model
@@ -164,7 +172,7 @@ public:
   std::unique_ptr<MPICommunicator> d_cm_p;  //!< MPI communicator
 
   // Heat source
-  std::unique_ptr<loading::BaseHeatSource> d_heat_source_p;
+  std::shared_ptr<loading::HeatSourceCollection> d_heat_sources_p;
 
   // Loading
   std::unique_ptr<loading::Loading> d_loading_p;
@@ -175,6 +183,7 @@ public:
   std::vector<bool> d_obs_points_owned;
   std::vector<double> d_obs_T;
   std::vector<std::vector<double>> d_obs_u;
+  std::vector<double> d_obs_damage;
 
   std::map<std::string, double> d_qoi;
 

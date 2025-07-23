@@ -1,6 +1,7 @@
 #ifndef HEAT_SOURCE_H
 #define HEAT_SOURCE_H
 
+#include "geometry.h"
 #include "libmesh/point.h"
 #include <memory>
 #include "util.h"
@@ -155,11 +156,22 @@ public:
  class HeatSource : public BaseHeatSource {
   public:
 
-     HeatSource(std::string spatial_fn_type = "", std::vector<double> spatial_fn_params = {}, std::string time_fn_type = "", std::vector<double> time_fn_params = {1})
-      : d_spatial_fn_type(spatial_fn_type), d_spatial_fn_params(spatial_fn_params), d_time_fn_type(time_fn_type), d_time_fn_params(time_fn_params) {}
+     HeatSource(std::string spatial_fn_type = "", 
+          std::vector<double> spatial_fn_params = {}, 
+          std::string time_fn_type = "", 
+          std::vector<double> time_fn_params = {1},
+          std::shared_ptr<geom::GeomObject> spatial_geom_p = nullptr)
+      : d_spatial_fn_type(spatial_fn_type), 
+        d_spatial_fn_params(spatial_fn_params), 
+        d_time_fn_type(time_fn_type), 
+        d_time_fn_params(time_fn_params),
+        d_spatial_geom_p(std::move(spatial_geom_p)) {}
   
     double get(const libMesh::Point& x, const double& time) const override {
       double fmax = 1.0;
+
+      bool is_inside = d_spatial_geom_p == nullptr ? true : d_spatial_geom_p->isInside(x);
+      if (!is_inside) return 0.0;
 
       if (d_spatial_fn_type == "sin_x") {
         double a = M_PI * d_spatial_fn_params[0];
@@ -222,6 +234,7 @@ public:
     std::vector<double> d_spatial_fn_params; ///< Parameters for spatial function
     std::string d_time_fn_type;   ///< Type of time function
     std::vector<double> d_time_fn_params; ///< Parameters for time function
+    std::shared_ptr<geom::GeomObject> d_spatial_geom_p;
   
     std::string printStr(int nt = 0, int lvl = 0) const override {
       auto tabS = util::io::getTabS(nt);
@@ -240,6 +253,64 @@ public:
       std::cout << printStr(nt, lvl);
     }
   };
+
+  class HeatSourceCollection {
+    public:
+      std::vector<HeatSource> d_heat_sources;
+      
+      HeatSourceCollection() {};
+
+      void addHeatSource(HeatSource heat_source) {
+        d_heat_sources.push_back(heat_source);
+      }
+    
+      /**
+       * @brief Get heat source value at given position and time
+       * @param x Position vector
+       * @param time Current time
+       * @return Heat source value in W/m³
+       */
+      double get(const libMesh::Point& x, const double& time) const {
+        double fmax = 0.0;
+        for (const auto& heat_source : d_heat_sources) {
+          fmax += heat_source.get(x, time);
+        }
+        return fmax;
+      }
+    
+        /*!
+       * @brief Returns the string containing printable information about the object
+       *
+       * @param nt Number of tabs to append before printing
+       * @param lvl Information level (higher means more information)
+       * @return string String containing printable information about the object
+       */
+      std::string printStr(int nt = 0, int lvl = 0) const {
+    
+        auto tabS = util::io::getTabS(nt);
+        std::ostringstream oss;
+        oss << tabS << "------- loading::HeatSourceCollection --------" << std::endl
+            << std::endl;
+        oss << tabS << "Number of heat sources: " << d_heat_sources.size() << std::endl;
+        for (size_t i = 0; i < d_heat_sources.size(); i++) {
+          oss << tabS << "Heat source " << i << ": " << std::endl;
+          oss << d_heat_sources[i].printStr(nt + 1, lvl) << std::endl;
+        }
+        oss << tabS << std::endl;
+    
+        return oss.str();
+      };
+    
+      /*!
+       * @brief Prints the information about the object
+       *
+       * @param nt Number of tabs to append before printing
+       * @param lvl Information level (higher means more information)
+       */
+      void print(int nt = 0, int lvl = 0) const {
+        std::cout << printStr(nt, lvl);
+      };
+    };
 
 } // namespace loading
 

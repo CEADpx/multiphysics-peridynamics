@@ -209,7 +209,7 @@ public:
   }
 
 
-  model::ThermomechanicalModel &d_model;  ///< Pointer to thermomechanical model
+  model::ThermomechanicalModel &d_model;  ///< thermomechanical model
 
   std::vector<inp::BCBase> d_disp_bcs;   ///< Displacement boundary conditions
   std::vector<inp::BCBase> d_force_bcs;   ///< Force boundary conditions

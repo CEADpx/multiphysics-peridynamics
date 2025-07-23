@@ -18,6 +18,7 @@ struct MaterialDeck {
   double d_nu;        // Poisson's ratio
   double d_rho;       // Density (kg/m^3)
   double d_Gc;         // Critical energy release rate (J/m^2)
+  bool d_breakBonds;   // Flag to break bonds
 
   // Plane stress/strain flag
   bool d_isPlaneStrain;
@@ -56,20 +57,21 @@ struct MaterialDeck {
       d_Kadjust = d_K;
       d_G = d_E/(2*(1+d_nu)); 
       d_rho = 1.0;
-      d_Gc = 1.0;
+      d_Gc = 1e-6;
 
       d_isPlaneStrain = false;
 
       d_dim = 3;
 
       d_horizon = 1.0;
+      d_breakBonds = true;
 
-      d_Ktherm = 0.1;
+      d_Ktherm = 0.5;
       d_Tref = 273.0;
       d_Cv = 10.0;
-      d_alpha = 1e-6;
+      d_alpha = 1e-3;
       d_robinBC = true;
-      d_hconvect = 50.;
+      d_hconvect = 0.001;
 
       d_influenceFnType = 2;
       d_influenceFnParams = {1.0, 0.25};
@@ -84,6 +86,7 @@ struct MaterialDeck {
       d_G = d_E/(2*(1+d_nu)); 
       d_rho = 2650.0;
       d_Gc = 70.0;
+      d_breakBonds = true;
 
       d_isPlaneStrain = false;
 
@@ -96,7 +99,7 @@ struct MaterialDeck {
       d_Cv = 1015.0;
       d_alpha = 3.5e-6;
       d_robinBC = true;
-      d_hconvect = 100.;
+      d_hconvect = 1.;
 
       d_influenceFnType = 1;
       d_influenceFnParams = {1.0, -1.0};
