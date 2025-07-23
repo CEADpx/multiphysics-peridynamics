@@ -68,7 +68,7 @@ public:
    *
    * @param r Reference (initial) bond length
    * @param s Bond strain
-   * @param fs Bond fracture state
+   * @param fs Bond fracture state (true = broken bond)
    * @param mx Weighted volume at node
    * @param thetax Dilation
    * @param Tx Temperature
@@ -78,15 +78,14 @@ public:
   getBondForce(const double &r, const double &s, bool &fs, const double
   &mx, const double &thetax, const double &Tx, bool for_nodal = true) const {
 
+    // break if above s0:
+    if (fs) { return 0.0; }
+    if (d_deck.d_breakBonds && s > d_s0) { fs = true; return 0.0; }
+
     double force = 0.0;
     double J = for_nodal ? 1.0 : getInfFn(r);
 
     if (d_deck.d_model_type == inp::ModelType::BondBased) {
-      // once broken, stay broken:
-      // if (fs) return 0.0;
-      
-      // break if above s0:
-      // if (s > d_s0) { fs = true; return 0.0; }
   
       // bond force magnitude = c * stretch * influence
       force = d_c * s * J;
@@ -99,23 +98,17 @@ public:
       // force
       force = (d_deck.d_dim * d_deck.d_Kadjust / mx) * (thetax) * J * r 
         + (d_deviatoricFactor / mx) * J * ed;
-
-      
-      // double alpha = 15. * d_deck.d_G / mx;
-      // double factor = (3. * d_deck.d_K / mx) - alpha / 3.;
-      // if (d_deck.d_dim == 2) {
-      //   alpha = 8.0 * d_deck.d_G/mx;
-      //   factor = (2. * d_deck.d_Kadjust / mx) - alpha / 2.;
-      // }
-  
-      // force = J * (r * thetax * factor + e * alpha);
     }
  
     return force + getThermalBondForce(r, s, fs, mx, thetax, Tx, for_nodal);
   };
 
   double getThermalBondForce(const double &r, const double &s, bool &fs, const double
-  &mx, const double &thetax, const double &Tx, bool for_nodal = true) const {
+  &mx, const double &thetax, const double &Tx,  bool for_nodal = true) const {
+
+    // break if above s0:
+    if (fs) { return 0.0; }
+    if (d_deck.d_breakBonds && s > d_s0) { fs = true; return 0.0; }
 
     double J = !for_nodal ? getInfFn(r) : 1.0;
 

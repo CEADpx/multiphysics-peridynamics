@@ -8,13 +8,26 @@
 #include "io.h"
 #include "loading.h"
 #include "material.h"
+#include "fracture.h"
 #include "mpi.h"
+#include <cstddef>
+#include <memory>
+
+struct Domain{
+  int d_dim;
+  double d_Lx, d_Ly, d_Lz;
+  libMesh::Point d_x;
+
+  Domain(int dim, double Lx, double Ly, double Lz, libMesh::Point x) : d_dim(dim), d_Lx(Lx), d_Ly(Ly), d_Lz(Lz), d_x(x) {};
+};
 
 void applyTemperatureBoundaryConditions(libMesh::EquationSystems &equation_systems, const inp::MaterialDeck &material_deck, const double &T0, const double & T1);
 
-void setDisplacementAndForceConditions(std::shared_ptr<model::ThermomechanicalModel> &model_p, const geom::Cuboid &domain, const double &tFinal, const double &load_rate);
+void setDisplacementAndForceConditions(std::shared_ptr<model::ThermomechanicalModel> &model_p, const Domain &domain, const double &tFinal, const double &load_rate);
 
-void setObservationPoints(std::shared_ptr<model::ThermomechanicalModel> &model_p, const geom::Cuboid &domain);
+void setObservationPoints(std::shared_ptr<model::ThermomechanicalModel> &model_p, const Domain &domain);
+
+void setPrecrack(std::shared_ptr<model::ThermomechanicalModel> &model_p, const Domain &domain);
 
 int main(int argc, char** argv) {
   // Initialize libMesh
@@ -22,14 +35,14 @@ int main(int argc, char** argv) {
   util::io::setCommunicator(init.comm().rank());
 
   // Problem parameters
-  int dim = 2;
-  double Lx = 0.04, Ly = 0.01, Lz = 0.0;
+  int dim = 3;
+  double Lx = 0.004, Ly = 0.001, Lz = 0.0;
   if (dim == 3) {
-    Lz = 0.01;
+    Lz = 0.001;
   }
   libMesh::Point center(0.5*Lx, 0.5*Ly, 0.5*Lz);
-  geom::Cuboid domain(Lx, Ly, Lz, center);
-  const unsigned int nx = 160, ny = 40, nz = 40; // Number of elements in each direction
+  Domain domain{dim, Lx, Ly, Lz, center};
+  const unsigned int nx = 80, ny = 20, nz = 20; // Number of elements in each direction
   
   // Setup input deck
   inp::MaterialDeck material_deck;
@@ -38,30 +51,53 @@ int main(int argc, char** argv) {
   material_deck.d_horizon = 3*(domain.d_Lx/nx);
   // material_deck.d_alpha = 0.0;
 
-  double dt = 2e-4;
-  double tFinal = 1.0;
+  double dt = 2e-6;
+  double tFinal = 0.0002;
   int nsteps = tFinal/dt;
   int write_interval = nsteps/100;
   
-  const double T0 = 293.0; // Initial temperature in K
-  const double T1 = 293.0; // Dirichlet BC at x = L (if no robinBC)
+  const double T0 = material_deck.d_Tref; // Initial temperature in K
+  const double T1 = material_deck.d_Tref + 100.0; // Dirichlet BC at x = L (if no robinBC)
   const double load_rate = 0.0; // Load rate in N/s
 
-  // Create a Gaussian heat source at the center of the domain
-  std::string sfn_type = "gaussian";
-  std::vector<double> sfn_params = {domain.d_Ly/10, 1.0, domain.d_x(0), domain.d_x(1), domain.d_x(2)};
-  // std::string tfn_type = "linear_step_const_value";
-  // std::vector<double> tfn_params = {1000.0/tFinal, 0.0, 0.2*tFinal, tFinal};
-  std::string tfn_type = "sin";
-  std::vector<double> tfn_params = {4000.0/tFinal, 2/tFinal};
-  auto heat_source_p = std::make_unique<loading::HeatSource>(sfn_type, sfn_params, tfn_type, tfn_params);
+  // source 1 - hot on right side 
+  auto heat_sources_p = std::make_shared<loading::HeatSourceCollection>();
+  {
+    std::string sfn_type = "";
+    std::vector<double> sfn_params = {}; // {domain.d_Ly/10, 1.0, domain.d_x(0), domain.d_x(1), domain.d_x(2)};
+    double L1 = domain.d_Lx*0.25, L2 = domain.d_Ly*0.25, L3 = domain.d_Lz*0.25;
+    libMesh::Point x0(domain.d_x(0) + domain.d_Lx*0.5 -  0.5*L1, domain.d_x(1), domain.d_x(2));
+    // std::string tfn_type = "linear_step_const_value";
+    // std::vector<double> tfn_params = {1000.0/tFinal, 0.0, 0.2*tFinal, tFinal};
+    std::string tfn_type = "linear";
+    std::vector<double> tfn_params = {1000000000.0/tFinal};
+    auto hs_geo = std::shared_ptr<geom::GeomObject>(nullptr);
+    if (dim == 2) {
+      hs_geo = std::make_shared<geom::Rectangle>(L1, L2, x0);
+    } else {
+      hs_geo = std::make_shared<geom::Cuboid>(L1, L2, L3, x0);
+    }
+    auto hs = loading::HeatSource(sfn_type, sfn_params, tfn_type, tfn_params, hs_geo);
+    heat_sources_p->addHeatSource(hs);
+  }
+  if (false) {
+    std::string sfn_type = "";
+    std::vector<double> sfn_params = {}; 
+    double L1 = domain.d_Lx*0.5, L2 = domain.d_Ly;
+    libMesh::Point x0(domain.d_x(0) - domain.d_Lx*0.5 + 0.5*L1, domain.d_x(1), domain.d_x(2));
+    std::string tfn_type = "linear_step_const_value";
+    std::vector<double> tfn_params = {-1000000.0/tFinal, 0.0, 0.2*tFinal, tFinal};
+    auto hs_geo = std::make_shared<geom::Rectangle>(L1, L2, x0);
+    auto hs = loading::HeatSource(sfn_type, sfn_params, tfn_type, tfn_params, hs_geo);
+    heat_sources_p->addHeatSource(hs);
+  }
 
   // Create mesh
   libMesh::Mesh mesh(init.comm());
   if (dim == 2) {
-    libMesh::MeshTools::Generation::build_square(mesh, nx, ny, 0., domain.d_Lx, 0., domain.d_Ly, libMesh::QUAD4);
+    libMesh::MeshTools::Generation::build_square(mesh, nx, ny, center(0) - 0.5*domain.d_Lx, center(0) + 0.5*domain.d_Lx, center(1) - 0.5*domain.d_Ly, center(1) + 0.5*domain.d_Ly, libMesh::QUAD4);
   } else {
-    libMesh::MeshTools::Generation::build_cube(mesh, nx, ny, nz, 0., domain.d_Lx, 0., domain.d_Ly, 0., domain.d_Lz, libMesh::HEX8);
+    libMesh::MeshTools::Generation::build_cube(mesh, nx, ny, nz, center(0) - 0.5*domain.d_Lx, center(0) + 0.5*domain.d_Lx, center(1) - 0.5*domain.d_Ly, center(1) + 0.5*domain.d_Ly, center(2) - 0.5*domain.d_Lz, center(2) + 0.5*domain.d_Lz, libMesh::HEX8);
   }
 
   // Create equation systems
@@ -92,6 +128,7 @@ int main(int argc, char** argv) {
     mechanical_system.add_variable("fz", libMesh::FIRST);
   }
   mechanical_system.add_variable("theta", libMesh::FIRST);
+  mechanical_system.add_variable("damage", libMesh::FIRST);
 
   // we need to avoid libmesh resetting the matrix and rhs to zero
   temperature_system.zero_out_matrix_and_rhs = false;
@@ -105,17 +142,22 @@ int main(int argc, char** argv) {
   // Create model
   auto model_p = std::make_shared<model::ThermomechanicalModel>(mesh, equation_systems, 
           temperature_system, theta_dot_system, mechanical_system, 
-          material_deck, dt, std::move(heat_source_p));
+          material_deck, dt);
+
+  model_p->d_heat_sources_p = std::move(heat_sources_p);
 
   // Initialize model
   model_p->initialize();
 
   setDisplacementAndForceConditions(model_p, domain, tFinal, load_rate);
 
-  model_p->secondaryInitialize();
-
   // get nodes at obs points
   setObservationPoints(model_p, domain);
+
+  // set precrack
+  // setPrecrack(model_p, domain);
+
+  model_p->secondaryInitialize();
 
 
   std::cout << "\n\n++++++++++++++++++++++++++++++++++++" << std::endl;
@@ -213,7 +255,7 @@ void applyTemperatureBoundaryConditions(libMesh::EquationSystems &equation_syste
   }
 }
 
-void setDisplacementAndForceConditions(std::shared_ptr<model::ThermomechanicalModel> &model_p, const geom::Cuboid &domain, const double &tFinal, const double &load_rate) {
+void setDisplacementAndForceConditions(std::shared_ptr<model::ThermomechanicalModel> &model_p, const Domain &domain, const double &tFinal, const double &load_rate) {
   auto& loading_p = model_p->d_loading_p;
 
   // displacement BC: volume of thickness horizon from x = 0 to x = horizon
@@ -247,18 +289,18 @@ void setDisplacementAndForceConditions(std::shared_ptr<model::ThermomechanicalMo
     bc.d_type = "Force_BC";
     auto right_face_center = domain.d_x + libMesh::Point(0.5*domain.d_Lx, 0.0, 0.0);
     bc.d_region_p = std::make_shared<geom::Cuboid>(horizon, domain.d_Ly, domain.d_Lz, right_face_center - libMesh::Point(0.5*horizon, 0.0, 0.0));
-    bc.d_direction = {1};
-    // bc.d_time_fn_type = "linear_step_const_value";
-    // bc.d_time_fn_params = {load_rate, 0.0, 0.25*tFinal, tFinal};
-    bc.d_time_fn_type = "sin";
-    bc.d_time_fn_params = {load_rate, 4.0/tFinal}; // 4 cycles in [0, tFinal]
+    bc.d_direction = {0};
+    bc.d_time_fn_type = "linear_step";
+    bc.d_time_fn_params = {load_rate, 0.25*tFinal, tFinal};
+    // bc.d_time_fn_type = "sin";
+    // bc.d_time_fn_params = {load_rate, 4.0/tFinal}; // 4 cycles in [0, tFinal]
   }
 }
 
-void setObservationPoints(std::shared_ptr<model::ThermomechanicalModel> &model_p, const geom::Cuboid &domain) {
+void setObservationPoints(std::shared_ptr<model::ThermomechanicalModel> &model_p, const Domain &domain) {
 
   auto Lx = domain.d_Lx, Ly = domain.d_Ly, Lz = domain.d_Lz;
-  auto center = domain.center();
+  auto center = domain.d_x;
   std::vector<libMesh::Point> obs_points;
 
   obs_points.push_back(center);
@@ -276,4 +318,43 @@ void setObservationPoints(std::shared_ptr<model::ThermomechanicalModel> &model_p
   
   // set observation points
   model_p->setObservationPoints(obs_points);
+}
+
+void setPrecrack(std::shared_ptr<model::ThermomechanicalModel> &model_p, const Domain &domain) {
+
+  const auto& center = domain.d_x;
+  const auto& Lx = domain.d_Lx;
+  const auto& Ly = domain.d_Ly;
+  const auto& Lz = domain.d_Lz;
+  const auto& horizon = model_p->d_material_p->d_deck.d_horizon;
+
+  const double l = 0.2*Ly;
+
+  // create a crack
+  geom::EdgeCrack crack;
+  if (false) {
+    crack.d_o = -1;
+    crack.d_theta = 0.0;
+    crack.d_l = l;
+    crack.d_lt = l/2;
+    crack.d_lb = l/2;
+    crack.d_pb = center + libMesh::Point(0.0, -0.5*l, 0.0);
+    crack.d_pt = center + libMesh::Point(0.0, 0.5*l, 0.0);
+    crack.d_activationTime = -1.0;
+    crack.d_crackAcrivated = false;
+  }
+
+  {
+    crack.d_o = 1;
+    crack.d_theta = 0.0;
+    crack.d_l = l;
+    crack.d_lt = 0.0;
+    crack.d_lb = l;
+    crack.d_pb = center + libMesh::Point(0.5*Lx, 0., 0.) + libMesh::Point(-l, 0.0, 0.0);
+    crack.d_pt = crack.d_pb + libMesh::Point(l, 0.0, 0.0);
+    crack.d_activationTime = -1.0;
+    crack.d_crackAcrivated = false;
+  }
+
+  model_p->d_edge_cracks.push_back(crack);
 }

@@ -506,6 +506,246 @@ inline double angle(const libMesh::Point &a, const libMesh::Point &b,
   }
 }
 
+/*!
+ * @brief Get vector with plus or minus 1 depending on the sign of component
+ * of another vector
+ *
+ * @param v Vector from which a new vector is created
+ * @return vec Vector
+ */
+inline libMesh::Point signVector(const libMesh::Point &v) {
+  return libMesh::Point(v(0) > 0.0 ? 1.0 : -1.0, v(1) > 0.0 ? 1.0 : -1.0, v(2) > 0.0 ? 1.0 : -1.0);
+}
+
+inline double getDeterminant(const std::vector<libMesh::Point> &rows) {
+  double a =
+      rows[0](0) * (rows[1](1) * rows[2](2) - rows[1](2) * rows[2](1));
+  double b =
+      rows[0](1) * (rows[1](0) * rows[2](2) - rows[1](2) * rows[2](0));
+  double c =
+      rows[0](2) * (rows[1](0) * rows[2](1) - rows[1](1) * rows[2](0));
+
+  return a - b + c;
+}
+
+/*!
+ * @brief Returns all corner points in the box
+ * @param dim Dimension of the box
+ * @param box Pair of points representing cuboid (rectangle in 2d)
+ * @return Vector Vector of corner points
+ */
+inline std::vector<libMesh::Point> getCornerPoints(
+  const size_t &dim, const std::pair<libMesh::Point, libMesh::Point> &box) {
+  if (dim == 1)
+    return {box.first, box.second};
+  else if (dim == 2)
+    return {box.first, libMesh::Point(box.second(0), box.first(1), 0.),
+            box.second, libMesh::Point(box.first(0), box.second(1), 0.)};
+  else if (dim == 3) {
+    double a = box.second(0) - box.first(0);
+    double b = box.second(1) - box.first(1);
+    double c = box.second(2) - box.first(2);
+    return {box.first,
+            box.first + libMesh::Point(a, 0., 0.),
+            box.first + libMesh::Point(a, b, 0.),
+            box.first + libMesh::Point(0., b, 0.),
+            box.first + libMesh::Point(0., 0., c),
+            box.first + libMesh::Point(a, 0., c),
+            box.second,
+            box.first + libMesh::Point(0., b, c)};
+  } else {
+    std::cerr << "Error: Check dimension = " << dim << ".\n";
+    exit(1);
+  }
+}
+
+/*!
+ * @brief Checks if point is inside a rectangle
+ * @param x Point
+ * @param x_min X coordinate of left-bottom corner point
+ * @param x_max X coordinate of right-top corner point
+ * @param y_min Y coordinate of left-bottom corner point
+ * @param y_max Y coordinate of right-top corner point
+ * @return bool True if point inside rectangle, else false
+ */
+inline bool isPointInsideRectangle(const libMesh::Point &x, const double &x_min,
+                                          const double &x_max, const double &y_min,
+                                          const double &y_max) {
+  return !(util::isLess(x(0), x_min - 1.0E-12) or
+         util::isLess(x(1), y_min - 1.0E-12) or
+         util::isGreater(x(0), x_max + 1.0E-12) or
+         util::isGreater(x(1), y_max + 1.0E-12));
+}
+
+/*!
+ * @brief Checks if point is inside a rectangle
+ * @param x Point
+ * @param x_lb Coordinate of left-bottom corner point
+ * @param x_rt Coordinate of right-top corner point
+ * @return bool True if point inside rectangle, else false
+ */
+inline bool isPointInsideRectangle(const libMesh::Point &x, const libMesh::Point &x_lb,
+                                          const libMesh::Point &x_rt) {
+  return !(util::isLess(x(0), x_lb(0) - 1.0E-12) or
+         util::isLess(x(1), x_lb(1) - 1.0E-12) or
+         util::isGreater(x(0), x_rt(0) + 1.0E-12) or
+         util::isGreater(x(1), x_rt(1) + 1.0E-12));
+}
+
+/*!
+ * @brief Checks if point is inside an angled rectangle
+ * @param x Point
+ * @param x_min X coordinate of left-bottom corner point
+ * @param x_max X coordinate of right-top corner point
+ * @param y_min Y coordinate of left-bottom corner point
+ * @param y_max Y coordinate of right-top corner point
+ * @param theta Angle of orientation of rectangle from x-axis
+ * @return bool True if point inside rectangle, else false
+ */
+inline bool isPointInsideAngledRectangle(const libMesh::Point &x, const double &x1,
+  const double &x2, const double &y1,
+  const double &y2, const double &theta) {
+  // we assume that the rectangle has passed the test
+
+  //
+  //                             (x2,y2)
+  //                            o
+  //
+  //
+  //
+  //
+  //
+  //        o
+  //      (x1,y1)
+
+  // get divisors
+  libMesh::Point lam = rotateCW2D(libMesh::Point(x2 - x1, y2 - y1, 0.0), theta);
+
+  // double lam1 = (x2-x1) * std::cos(theta) + (y2-y1) * std::sin(theta);
+  // double lam2 = -(x2-x1) * std::sin(theta) + (y2-y1) * std::cos(theta);
+
+  // get mapped coordinate of x
+  libMesh::Point xmap = rotateCW2D(libMesh::Point(x(0) - x1, x(1) - y1, 0.0), theta);
+
+  // double xmap = (x[0]-x1) * std::cos(theta) + (x[1]-y1) * std::sin(theta);
+  // double ymap = -(x[0]-x1) * std::sin(theta) + (x[1]-y1) * std::cos(theta);
+
+  // check if mapped coordinate are out of range [0, lam1] and [0, lam2]
+  return !(util::isLess(xmap(0), -1.0E-12) or
+      util::isLess(xmap(1), -1.0E-12) or
+      util::isGreater(xmap(0), lam(0) + 1.0E-12) or
+      util::isGreater(xmap(1), lam(1) + 1.0E-12));
+}
+
+/*!
+ * @brief Checks if point is inside a cuboid (rectangle in 2-d, line in 1-d)
+ * @param dim Dimension
+ * @param x Point
+ * @param x_lbb Coordinate of left-bottom-back corner point
+ * @param x_rtf Coordinate of right-top-front corner point
+ * @return bool True if point inside cuboid, else false
+ */
+inline bool isPointInsideCuboid(const size_t &dim, const libMesh::Point &x,
+    const libMesh::Point &x_lbb,
+    const libMesh::Point &x_rtf) {
+  if (dim == 1)
+    return !(isLess(x(0), x_lbb(0) - 1.0E-12) or isGreater(x(0), x_rtf(0) + 1.0E-12));
+  else if (dim == 2)
+    return !(isLess(x(0), x_lbb(0) - 1.0E-12) or
+        isLess(x(1), x_lbb(1) - 1.0E-12) or
+        isGreater(x(0), x_rtf(0) + 1.0E-12) or
+        isGreater(x(1), x_rtf(1) + 1.0E-12));
+  else
+    return !(isLess(x(0), x_lbb(0) - 1.0E-12) or
+          isLess(x(1), x_lbb(1) - 1.0E-12) or
+          isLess(x(2), x_lbb(2) - 1.0E-12) or
+          isLess(x(2), x_lbb(2) - 1.0E-12) or
+          isGreater(x(0), x_rtf(0) + 1.0E-12) or
+          isGreater(x(1), x_rtf(1) + 1.0E-12) or
+          isGreater(x(2), x_rtf(2) + 1.0E-12));
+}
+
+/*!
+ * @brief Computes the area of triangle
+ * @param nodes Vertices of the triangle
+ * @return area Area of triangle
+ */
+inline double getTriangleArea(const std::vector<libMesh::Point> &nodes) {
+  return 0.5 * ((nodes[1](0) - nodes[0](0)) * (nodes[2](1) - nodes[0](1)) -
+                (nodes[2](0) - nodes[0](0)) * (nodes[1](1) - nodes[0](1)));
+}
+
+/*!
+ * @brief Computes the volume of tetrahedron
+ * @param nodes Vertices of the tetrahedron
+ * @return area Area of tetrahedron
+ */
+inline double getTetVolume(const std::vector<libMesh::Point> &nodes) {
+  auto a = nodes[1] - nodes[0];
+  auto b = nodes[2] - nodes[0];
+  auto c = nodes[3] - nodes[0];
+
+  return (1. / 6.) * getDeterminant({a, b, c});
+}
+
+/*!
+ * @brief Checks if the point C in on the line between A and B 
+ * @param A Point 1
+ * @param B Point 2
+ * @param C Point 3 
+ * @return Direction
+ */
+inline int direction(const libMesh::Point &A , const libMesh::Point &B, const libMesh::Point &C) {
+  int val =
+      (B(1) - A(1)) * (C(0) - B(0)) - (B(0) - A(0)) * (C(1) - B(1));
+  if (val == 0)
+    return 0;  // colinear
+  else if (val < 0)
+    return 2;  // anti-clockwise direction
+  return 1;    // clockwise direction
+}
+
+inline bool onLine(const libMesh::Point &A, const libMesh::Point &B,
+  const libMesh::Point &C) {
+  if (C(0) <= std::max(A(0), B(0)) && C(0) <= std::min(A(0), B(0)) &&
+      (C(1) <= std::max(A(1), B(1)) && C(1) <= std::min(A(1), B(1))))
+    return true;
+
+  return false;
+}
+
+/*!
+ * @brief Checks if the two lines between A and B and between C and C intersect
+ * @param A Start point of the first line
+ * @param B End point of the first line
+ * @param C Start point of the second line
+ * @param D End point of the second line
+ * @return intersection 
+ */
+inline bool doLinesIntersect (const libMesh::Point &A , const libMesh::Point &B, const libMesh::Point &C, const libMesh::Point & D) {
+  // four direction for two lines and points of other line
+  int dir1 = direction(A, B, C);
+  int dir2 = direction(A, B, D);
+  int dir3 = direction(C, D, A);
+  int dir4 = direction(C, D, B);
+
+  if (dir1 != dir2 && dir3 != dir4) return true;  // they are intersecting
+
+  if (dir1 == 0 && onLine(A, B, C))  // when p2 of line2 are on the line1
+    return true;
+
+  if (dir2 == 0 && onLine(A, B, D))  // when p1 of line2 are on the line1
+    return true;
+
+  if (dir3 == 0 && onLine(C, D, A))  // when p2 of line1 are on the line2
+    return true;
+
+  if (dir4 == 0 && onLine(C, D, B))  // when p1 of line1 are on the line2
+    return true;
+
+  return false;
+ }
+
 /** @}*/
 
 } // namespace util

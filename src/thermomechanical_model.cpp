@@ -8,6 +8,7 @@
 
 #include "heat_source.h"
 #include "loading.h"
+#include "fracture.h"
 
 #include <memory>
 #include <filesystem> // Added for directory creation
@@ -25,8 +26,7 @@ ThermomechanicalModel::ThermomechanicalModel(libMesh::ReplicatedMesh& mesh,
   libMesh::ExplicitSystem& theta_dot_system,
   libMesh::ExplicitSystem& mechanical_system,
   inp::MaterialDeck& deck, 
-  double dt, 
-  std::unique_ptr<loading::HeatSource> heat_source_p)
+  double dt)
   : d_mesh(mesh),
     d_equation_systems(equation_systems),
     d_temperature_system(temperature_system),
@@ -35,7 +35,6 @@ ThermomechanicalModel::ThermomechanicalModel(libMesh::ReplicatedMesh& mesh,
     d_material_p(nullptr),
     d_dt(dt),
     d_time(0.0),
-    d_heat_source_p(std::move(heat_source_p)),
     d_displacement_update_method("velocity_verlet"), 
     d_use_nodal_fem(false)
 {
@@ -51,11 +50,14 @@ ThermomechanicalModel::ThermomechanicalModel(libMesh::ReplicatedMesh& mesh,
   d_theta_dot.resize(n_nodes);
   d_force.resize(n_nodes);
   d_neighbor_list.resize(n_nodes);
-  d_fracture.resize(n_nodes);
   d_neighbor_volume.resize(n_nodes);
   d_displacement_fixed.resize(n_nodes);
   d_force_fixed.resize(n_nodes);
   d_nodal_volume.resize(n_nodes);
+  d_damage.resize(n_nodes);
+
+  // Initialize fracture
+  d_fracture_p = std::make_unique<geom::Fracture>(*this);
 
   // Initialize material
   d_material_p = std::make_shared<material::Material>(deck);
@@ -67,13 +69,16 @@ ThermomechanicalModel::ThermomechanicalModel(libMesh::ReplicatedMesh& mesh,
   d_loading_p = std::make_unique<loading::Loading>(*this);
 
   // qoi
-  d_qoi = {{"force", 0.0}, {"displacement", 0.0}, {"velocity", 0.0}, {"theta", 0.0}, {"theta_dot", 0.0}, {"temperature", 0.0}};
+  d_qoi = {{"force", 0.0}, {"displacement", 0.0}, {"velocity", 0.0}, {"theta", 0.0}, {"theta_dot", 0.0}, {"temperature", 0.0}, {"damage", 0.0}};
 }
 
 void ThermomechanicalModel::initialize() {
 
   // Build neighbor list for all nodes
   setupNeighborList();
+
+  // Initialize fracture
+  d_fracture_p->initialize();
 
   // Setup ghost nodes for parallel computation
   setupGhostNodesAndCommunicator();
@@ -99,6 +104,14 @@ void ThermomechanicalModel::secondaryInitialize() {
 
   // apply displacement boundary conditions
   d_loading_p->applyDisplacement(d_time);
+
+  // add cracks
+  std::cout << "\n\n\nadding cracks at time = " << d_time << std::endl;
+  d_fracture_p->addCrack(d_time);
+  std::cout << "\n\n\n" << std::endl;
+
+  // update theta and damage
+  updateThetaAndDamage();
 
   // Assemble heat equation matrix (done once)
   assembleHeatMatrix();
@@ -183,8 +196,8 @@ void ThermomechanicalModel::updateKinematics() {
     // sync displacement to ghost nodes
     d_cm_p->syncDisplacement(d_displacement);
 
-    // update theta
-    updateTheta();
+    // update theta and damage
+    updateThetaAndDamage();
 
     // sync volumetric strain to ghost nodes
     d_cm_p->syncScalarData(d_theta);
@@ -218,7 +231,7 @@ void ThermomechanicalModel::updateCoupledData() {
     d_cm_p->syncDisplacement(d_displacement);
 
     // update volumetric strain (needs updated displacement)
-    updateTheta();
+    updateThetaAndDamage();
 
     // sync volumetric strain to ghost nodes
     d_cm_p->syncScalarData(d_theta);
@@ -238,7 +251,6 @@ void ThermomechanicalModel::updateCoupledData() {
 void ThermomechanicalModel::setupNeighborList() {
 
   d_neighbor_list.resize(d_mesh.n_nodes());
-  d_fracture.resize(d_mesh.n_nodes());
   d_neighbor_volume.resize(d_mesh.n_nodes());
   
   const unsigned int n_nodes = d_mesh.n_nodes();
@@ -252,7 +264,6 @@ void ThermomechanicalModel::setupNeighborList() {
     }
     const libMesh::Point& xi = *d_mesh.node_ptr(i);
     d_neighbor_list[i].clear();
-    d_fracture[i].clear();
     d_neighbor_volume[i].clear();
     
     for (libMesh::dof_id_type j = 0; j < n_nodes; j++) {
@@ -266,7 +277,6 @@ void ThermomechanicalModel::setupNeighborList() {
           printf("j = %u, jj = %u, max_node_id = %u\n", j, jj, d_mesh.max_node_id());
           throw std::runtime_error("jj > max_node_id");
         }
-        d_fracture[i].push_back(0); // 0 = unbroken bond
         d_neighbor_volume[i].push_back(0.0);
       }
     }
@@ -516,12 +526,14 @@ void ThermomechanicalModel::computeMx() {
   }
 }
 
-void ThermomechanicalModel::updateTheta() {
+void ThermomechanicalModel::updateThetaAndDamage() {
   // Loop over owned nodes
   for (size_t loc_i = 0; loc_i < d_cm_p->d_owned_size; loc_i++) {
     const auto& i = d_cm_p->d_owned_and_ghost_ids[loc_i];  // Global node ID
     const libMesh::Point& xi = *d_mesh.node_ptr(i);
     double theta = 0.0;
+    double a = double(d_neighbor_list[i].size());
+    double b = 0.0;
 
     // Loop over neighbors using neighbor list
     for (size_t loc_j = 0; loc_j < d_neighbor_list[i].size(); loc_j++) {
@@ -540,12 +552,25 @@ void ThermomechanicalModel::updateTheta() {
       
       // Compute bond strain (s = (|eta| - |xi|) / |xi|)
       double s = d_material_p->getS(dx, du);
+
+      // get bond state
+      bool bond_state = d_fracture_p->getBondState(i, loc_j);
+      if (s > d_material_p->d_s0 && d_material_p->d_deck.d_breakBonds && !bond_state) {
+        d_fracture_p->setBondState(i, loc_j, true);
+      }
       
       // Add contribution to volumetric strain
-      theta += J * r * r * s * d_neighbor_volume[i][loc_j];
+      if (!bond_state) {
+        theta += J * r * r * s * d_neighbor_volume[i][loc_j];
+      }
+
+      if (!bond_state) {
+        b += 1.;
+      }
     }
 
     d_theta[i] = d_material_p->d_deck.d_dim * theta / d_mx[i];
+    d_damage[i] = 1. - b/a;
   }
 
   for (size_t loc_i = d_cm_p->d_owned_size; loc_i < d_cm_p->d_owned_and_ghost_ids.size(); loc_i++) {
@@ -553,7 +578,7 @@ void ThermomechanicalModel::updateTheta() {
     d_theta[i] = 0.0;
   }
 }
-
+  
 void ThermomechanicalModel::copyTemperature() {
   // Use the libMesh DofMap to access the solution vector and copy values to d_temperature
   const libMesh::DofMap& dof_map = d_temperature_system.get_dof_map();
@@ -754,7 +779,7 @@ void ThermomechanicalModel::assembleHeatRHS(const double& time) {
       // Loop over test functions
       for (unsigned int i = 0; i < n_dofs; i++) {
         // Add source terms
-        Fe(i) += d_dt * JxW[qp] * d_material_p->d_deck.d_rho * phi[i][qp] * d_heat_source_p->get(xyz[qp], time);
+        Fe(i) += d_dt * JxW[qp] * d_material_p->d_deck.d_rho * phi[i][qp] * d_heat_sources_p->get(xyz[qp], time);
 
         // add previous time step solution
         Fe(i) += JxW[qp] * d_material_p->d_deck.d_rho * 
@@ -833,8 +858,8 @@ void ThermomechanicalModel::computePeriForces() {
       libMesh::Point du = d_displacement[j] - d_displacement[i];
       double r = dx.norm();
       
-      // Get bond state
-      bool fs = d_fracture[i][loc_j] == 0;  // 0 = unbroken bond
+      // Get bond state (true = broken bond)
+      bool fs = d_fracture_p->getBondState(i, loc_j);
 
       // Compute bond strain
       double s = d_material_p->getS(dx, du);
@@ -892,6 +917,7 @@ void ThermomechanicalModel::updateMechanicalSystem() {
     fz_var = d_mechanical_system.variable_number("fz");
 
   const unsigned int theta_var = d_mechanical_system.variable_number("theta");
+  const unsigned int damage_var = d_mechanical_system.variable_number("damage");
 
   std::vector<libMesh::dof_id_type> dof_indices;
 
@@ -922,6 +948,9 @@ void ThermomechanicalModel::updateMechanicalSystem() {
 
     // Set theta
     solution.set(dof_indices[theta_var], d_theta[i]);
+
+    // Set damage
+    solution.set(dof_indices[damage_var], d_damage[i]);
   }
 
   // Close the solution vector to finalize changes
@@ -1000,7 +1029,7 @@ void ThermomechanicalModel::write(unsigned int file_number, bool print_debug) {
     if (d_cm_p->d_rank == 0) {
       std::cout << "Output number " << file_number << ", time = " << d_time << std::endl;
       for (size_t i = 0; i < d_obs_nodes.size(); ++i) {
-        std::cout << "Obs point " << i << ", T = " << d_obs_T[i] << ", u = " << d_obs_u[0][i] << ", " << d_obs_u[1][i] << ", " << d_obs_u[2][i] << std::endl;
+        std::cout << "Obs point " << i << ", T = " << d_obs_T[i] << ", damage = " << d_obs_damage[i] << ", u = " << d_obs_u[0][i] << ", " << d_obs_u[1][i] << ", " << d_obs_u[2][i] << std::endl;
       }
 
       for (const auto& [key, value]: d_qoi) {
@@ -1018,6 +1047,7 @@ void ThermomechanicalModel::setObservationPoints(const std::vector<libMesh::Poin
   d_obs_points_owned.clear();
   d_obs_T.clear();
   d_obs_u.clear(); 
+  d_obs_damage.clear();
   
   // find the nodes closest to the observation points
   std::vector<double> obs_dist(n_obs, 1e10);
@@ -1052,6 +1082,7 @@ void ThermomechanicalModel::setObservationPoints(const std::vector<libMesh::Poin
   // set other data
   n_obs = d_obs_nodes.size();
   d_obs_T.resize(n_obs, 0.);
+  d_obs_damage.resize(n_obs, 0.);
   d_obs_u.resize(3);
   for (size_t i = 0; i < 3; ++i) {
     d_obs_u[i].resize(n_obs, 0.);
@@ -1083,17 +1114,20 @@ void ThermomechanicalModel::setObservationPoints(const std::vector<libMesh::Poin
 void ThermomechanicalModel::updateObsData() {
 
   std::vector<double> local_obs_T(d_obs_nodes.size(), 0.0);
+  std::vector<double> local_obs_damage(d_obs_nodes.size(), 0.0);
   std::vector<std::vector<double>> local_obs_u(3, std::vector<double>(d_obs_nodes.size(), 0.0));
 
   for (size_t i = 0; i < d_obs_nodes.size(); ++i) {
     const auto& i_node = d_obs_nodes[i];
     if (d_obs_points_owned[i]) {
       local_obs_T[i] = d_temperature[i_node];
+      local_obs_damage[i] = d_damage[i_node];
       for (size_t j = 0; j < 3; ++j) {
         local_obs_u[j][i] = d_displacement[i_node](j);
       }
     } else {
       local_obs_T[i] = 0.;
+      local_obs_damage[i] = 0.;
       for (size_t j = 0; j < 3; ++j) {
         local_obs_u[j][i] = 0.;
       }
@@ -1101,6 +1135,7 @@ void ThermomechanicalModel::updateObsData() {
 
     // reset the values 
     d_obs_T[i] = 0.;
+    d_obs_damage[i] = 0.;
     for (size_t j = 0; j < 3; ++j) {
       d_obs_u[j][i] = 0.;
     }
@@ -1115,6 +1150,16 @@ void ThermomechanicalModel::updateObsData() {
       MPI_SUM,                   // operation
       0,                         // root rank
       d_cm_p->d_comm.get()             // communicator
+  );
+
+  MPI_Reduce(
+    local_obs_damage.data(),          // send buffer
+    d_obs_damage.data(),         // receive buffer at root
+    d_obs_nodes.size(),                  // number of elements
+    MPI_DOUBLE,                // data type
+    MPI_SUM,                   // operation
+    0,                         // root rank
+    d_cm_p->d_comm.get()             // communicator
   );
 
   for (size_t i = 0; i < 3; ++i) {
@@ -1138,7 +1183,9 @@ void ThermomechanicalModel::updateQoi() {
   d_qoi["theta"] = vectorNorm(d_theta);
   d_qoi["theta_dot"] = vectorNorm(d_theta_dot);
   d_qoi["temperature"] = vectorNorm(d_temperature);
+  d_qoi["damage"] = vectorNorm(d_damage);
 }
+
 double ThermomechanicalModel::vectorNorm(const std::vector<libMesh::Point> &vec) {
   double norm_sq = 0.;
   for (size_t loc_i=0; loc_i<d_cm_p->d_owned_size; ++loc_i) {
@@ -1232,11 +1279,16 @@ std::string ThermomechanicalModel::printStr(int nt, int lvl) const {
   oss << tabS << "communicator: " << std::endl;
   oss << d_cm_p->printStr(nt + 1, lvl) << std::endl;
   oss << tabS << "heat_source: " << std::endl;
-  oss << d_heat_source_p->printStr(nt + 1, lvl) << std::endl;
+  oss << d_heat_sources_p->printStr(nt + 1, lvl) << std::endl;
   oss << tabS << "loading: " << std::endl;
   oss << d_loading_p->printStr(nt + 1, lvl) << std::endl;
   oss << tabS << "number of obs_points: " << d_obs_points.size() << std::endl;
   oss << tabS << "number of obs_nodes: " << d_obs_nodes.size() << std::endl;
+
+  oss << tabS << "number of edge cracks: " << d_edge_cracks.size() << std::endl;
+  for (size_t i = 0; i < d_edge_cracks.size(); i++) {
+    oss << tabS << "edge crack " << i << ": " << d_edge_cracks[i].printStr(nt + 1, lvl) << std::endl;
+  }
 
   oss << tabS << std::endl;
   return oss.str();

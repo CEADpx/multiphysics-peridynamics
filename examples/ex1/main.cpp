@@ -8,6 +8,7 @@
 #include "io.h"
 #include "loading.h"
 #include "material.h"
+#include "fracture.h"
 #include "mpi.h"
 
 void checkMesh(libMesh::ReplicatedMesh &mesh);
@@ -70,7 +71,8 @@ int main(int argc, char** argv) {
   std::vector<double> sfn_params = {domain.d_Ly/10, 1.0, domain.d_x(0), domain.d_x(1), domain.d_x(2)};
   std::string tfn_type = "linear_step_const_value";
   std::vector<double> tfn_params = {-50.0/tFinal, 0.0, 0.1*tFinal, tFinal};
-  auto heat_source_p = std::make_unique<loading::HeatSource>(sfn_type, sfn_params, tfn_type, tfn_params);
+  auto hs = loading::HeatSource(sfn_type, sfn_params, tfn_type, tfn_params);
+  auto heat_sources_p = std::make_shared<loading::HeatSourceCollection>();
 
   // Create equation systems
   libMesh::EquationSystems equation_systems(mesh);
@@ -113,7 +115,8 @@ int main(int argc, char** argv) {
   // Create model
   auto model_p = std::make_shared<model::ThermomechanicalModel>(mesh, equation_systems, 
           temperature_system, theta_dot_system, mechanical_system, 
-          material_deck, dt, std::move(heat_source_p));
+          material_deck, dt);
+  model_p->d_heat_sources_p = std::move(heat_sources_p);
 
   // Initialize model
   model_p->initialize();
@@ -180,7 +183,7 @@ int main(int argc, char** argv) {
       model_p->write(step/write_interval + 1, true);
 
       // print heat source at the center of the domain
-      std::cout << "Heat source at the center of the domain: " << model_p->d_heat_source_p->get(domain.d_x, model_p->d_time) << std::endl;
+      std::cout << "Heat source at the center of the domain: " << model_p->d_heat_sources_p->get(domain.d_x, model_p->d_time) << std::endl;
     }
 
     if (step % write_interval == 0 && false) {
@@ -593,7 +596,7 @@ void debugPeriForce(const std::shared_ptr<model::ThermomechanicalModel>& model_p
       double r = dx.norm();
       
       // Get bond state
-      bool fs = model_p->d_fracture[i][loc_j] == 0;  // 0 = unbroken bond
+      bool fs = model_p->d_fracture_p->getBondState(i, loc_j);
 
       // Compute bond strain
       double s = model_p->d_material_p->getS(dx, du);
