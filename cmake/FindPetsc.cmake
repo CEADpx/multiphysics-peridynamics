@@ -1,7 +1,10 @@
-# Copyright (c) 2019    Prashant K. Jha
+# -------------------------------------------
+# Copyright (c) 2021 - 2025 Prashant K. Jha
+# -------------------------------------------
+# PeriDEM https://github.com/prashjha/PeriDEM
 #
-# Distributed under the GNU GENERAL PUBLIC LICENSE, Version 3.0.
-# (See accompanying file LICENSE.txt)
+# Distributed under the Boost Software License, Version 1.0. (See accompanying
+# file LICENSE)
 find_package(PkgConfig)
 
 find_library(PETSC_LIBRARIES

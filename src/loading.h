@@ -1,13 +1,18 @@
-#ifndef LOADING_H
-#define LOADING_H
+/*
+ * -------------------------------------------
+ * Copyright (c) 2021 - 2025 Prashant K. Jha
+ * -------------------------------------------
+ * https://github.com/CEADpx/multiphysics-peridynamics
+ *
+ * Distributed under the Boost Software License, Version 1.0. (See accompanying
+ * file LICENSE)
+ */
+#pragma once
 
 #include "bc.h"
 #include "thermomechanical_model.h"
 #include <libmesh/point.h>
 #include <vector>
-#include <cmath>
-#include <map>
-#include <utility>
 #include <memory>
 
 namespace loading {
@@ -17,6 +22,16 @@ namespace loading {
  */
 class Loading {
 public:
+
+  model::ThermomechanicalModel &d_model;  ///< thermomechanical model
+
+  std::vector<inp::BCBase> d_disp_bcs;   ///< Displacement boundary conditions
+  std::vector<inp::BCBase> d_force_bcs;   ///< Force boundary conditions
+  std::vector<inp::BCBase> d_init_conds;  ///< Initial conditions
+
+  std::vector<std::vector<size_t>> d_disp_nodes;   ///< Nodes for each displacement BC
+  std::vector<std::vector<size_t>> d_force_nodes;  ///< Nodes for each force BC
+  std::vector<std::vector<size_t>> d_init_nodes;   ///< Nodes for each initial condition
 
   /**
    * @brief Default constructor
@@ -208,18 +223,7 @@ public:
     }
   }
 
-
-  model::ThermomechanicalModel &d_model;  ///< thermomechanical model
-
-  std::vector<inp::BCBase> d_disp_bcs;   ///< Displacement boundary conditions
-  std::vector<inp::BCBase> d_force_bcs;   ///< Force boundary conditions
-  std::vector<inp::BCBase> d_init_conds;  ///< Initial conditions
-
-  std::vector<std::vector<size_t>> d_disp_nodes;   ///< Nodes for each displacement BC
-  std::vector<std::vector<size_t>> d_force_nodes;  ///< Nodes for each force BC
-  std::vector<std::vector<size_t>> d_init_nodes;   ///< Nodes for each initial condition
-
-    /*!
+  /*!
    * @brief Returns the string containing printable information about the object
    *
    * @param nt Number of tabs to append before printing
@@ -264,5 +268,3 @@ public:
 };
 
 } // namespace loading
-
-#endif // LOADING_H 

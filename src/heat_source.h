@@ -1,5 +1,13 @@
-#ifndef HEAT_SOURCE_H
-#define HEAT_SOURCE_H
+/*
+ * -------------------------------------------
+ * Copyright (c) 2021 - 2025 Prashant K. Jha
+ * -------------------------------------------
+ * https://github.com/CEADpx/multiphysics-peridynamics
+ *
+ * Distributed under the Boost Software License, Version 1.0. (See accompanying
+ * file LICENSE)
+ */
+#pragma once
 
 #include "geometry.h"
 #include "libmesh/point.h"
@@ -313,5 +321,3 @@ public:
     };
 
 } // namespace loading
-
-#endif // HEAT_SOURCE_H 

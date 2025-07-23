@@ -1,5 +1,13 @@
-#ifndef MATERIAL_DECK_H
-#define MATERIAL_DECK_H
+/*
+ * -------------------------------------------
+ * Copyright (c) 2021 - 2025 Prashant K. Jha
+ * -------------------------------------------
+ * https://github.com/CEADpx/multiphysics-peridynamics
+ *
+ * Distributed under the Boost Software License, Version 1.0. (See accompanying
+ * file LICENSE)
+ */
+#pragma once
 
 #include "io.h"
 
@@ -68,8 +76,8 @@ struct MaterialDeck {
 
       d_Ktherm = 0.5;
       d_Tref = 273.0;
-      d_Cv = 10.0;
-      d_alpha = 1e-3;
+      d_Cv = 1.0;
+      d_alpha = 1e-2;
       d_robinBC = true;
       d_hconvect = 0.001;
 
@@ -142,5 +150,3 @@ struct MaterialDeck {
 };
 
 } // namespace inp
-
-#endif // MATERIAL_DECK_H

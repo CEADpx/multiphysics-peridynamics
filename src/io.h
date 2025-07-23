@@ -1,26 +1,21 @@
 /*
  * -------------------------------------------
- * Copyright (c) 2021 - 2024 Prashant K. Jha
+ * Copyright (c) 2021 - 2025 Prashant K. Jha
  * -------------------------------------------
- * PeriDEM https://github.com/prashjha/PeriDEM
+ * https://github.com/CEADpx/multiphysics-peridynamics
  *
  * Distributed under the Boost Software License, Version 1.0. (See accompanying
  * file LICENSE)
  */
-
-#ifndef UTILS_UTIL_IO_H
-#define UTILS_UTIL_IO_H
+#pragma once
 
 #include "libmesh/libmesh.h"
 #include "libmesh/point.h"
 #include <fstream>
 #include <iostream>
 #include <vector>
-#include <algorithm>
-#include <format>
 #include <string>
 #include <map>
-#include <string_view>
 
 namespace {
   unsigned int comm_rank = 0;
@@ -336,5 +331,3 @@ inline bool isFileEmpty(std::ifstream& pFile) {
 } // namespace io
 
 } // namespace util
-
-#endif // UTILS_UTIL_IO_H
