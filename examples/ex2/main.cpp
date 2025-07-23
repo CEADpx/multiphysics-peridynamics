@@ -1,8 +1,16 @@
+/*
+ * -------------------------------------------
+ * Copyright (c) 2021 - 2025 Prashant K. Jha
+ * -------------------------------------------
+ * https://github.com/CEADpx/multiphysics-peridynamics
+ *
+ * Distributed under the Boost Software License, Version 1.0. (See accompanying
+ * file LICENSE)
+ */
 
+#include "libmesh_includes.h"
 #include "geometry.h"
 #include "thermomechanical_model.h"
-#include "libmesh_includes.h"
-
 #include "bc.h"
 #include "heat_source.h"
 #include "io.h"
@@ -35,10 +43,10 @@ int main(int argc, char** argv) {
   util::io::setCommunicator(init.comm().rank());
 
   // Problem parameters
-  int dim = 3;
-  double Lx = 0.004, Ly = 0.001, Lz = 0.0;
+  int dim = 2;
+  double Lx = 0.04, Ly = 0.01, Lz = 0.0;
   if (dim == 3) {
-    Lz = 0.001;
+    Lz = 0.01;
   }
   libMesh::Point center(0.5*Lx, 0.5*Ly, 0.5*Lz);
   Domain domain{dim, Lx, Ly, Lz, center};
@@ -65,12 +73,12 @@ int main(int argc, char** argv) {
   {
     std::string sfn_type = "";
     std::vector<double> sfn_params = {}; // {domain.d_Ly/10, 1.0, domain.d_x(0), domain.d_x(1), domain.d_x(2)};
-    double L1 = domain.d_Lx*0.25, L2 = domain.d_Ly*0.25, L3 = domain.d_Lz*0.25;
+    double L1 = domain.d_Lx*0.35, L2 = domain.d_Ly*0.35, L3 = domain.d_Lz*0.35;
     libMesh::Point x0(domain.d_x(0) + domain.d_Lx*0.5 -  0.5*L1, domain.d_x(1), domain.d_x(2));
     // std::string tfn_type = "linear_step_const_value";
     // std::vector<double> tfn_params = {1000.0/tFinal, 0.0, 0.2*tFinal, tFinal};
     std::string tfn_type = "linear";
-    std::vector<double> tfn_params = {1000000000.0/tFinal};
+    std::vector<double> tfn_params = {10000000.0/tFinal};
     auto hs_geo = std::shared_ptr<geom::GeomObject>(nullptr);
     if (dim == 2) {
       hs_geo = std::make_shared<geom::Rectangle>(L1, L2, x0);

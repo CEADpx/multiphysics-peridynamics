@@ -47,9 +47,15 @@ message(STATUS "PC_LIBMESH_LIBRARIES = ${PC_LIBMESH_LIBRARIES}")
 message(STATUS "PC_LIBMESH_LIBRARY_DIRS = ${PC_LIBMESH_LIBRARY_DIRS}")
 
 # Get all required libraries from libmesh-config
-exec_program(${LIBMESH_CONFIG_EXECUTABLE}
-  ARGS --libs
+# exec_program(${LIBMESH_CONFIG_EXECUTABLE}
+#   ARGS --libs
+#   OUTPUT_VARIABLE LIBMESH_LINK_FLAGS
+# )
+
+execute_process(
+  COMMAND ${LIBMESH_CONFIG_EXECUTABLE} --libs
   OUTPUT_VARIABLE LIBMESH_LINK_FLAGS
+  RESULT_VARIABLE LIBMESH_LINK_FLAGS_RETURN
 )
 
 # Convert the flags into a list
@@ -137,9 +143,15 @@ find_path(LIBMESH_INCLUDE_DIR libmesh/libmesh.h
 )
 
 # Get include paths from libmesh-config
-exec_program(${LIBMESH_CONFIG_EXECUTABLE}
-  ARGS --include
+# exec_program(${LIBMESH_CONFIG_EXECUTABLE}
+#   ARGS --include
+#   OUTPUT_VARIABLE LIBMESH_INC_FLAGS
+# )
+
+execute_process(
+  COMMAND ${LIBMESH_CONFIG_EXECUTABLE} --include
   OUTPUT_VARIABLE LIBMESH_INC_FLAGS
+  RESULT_VARIABLE LIBMESH_INC_FLAGS_RETURN
 )
 
 # Convert to list and process include paths

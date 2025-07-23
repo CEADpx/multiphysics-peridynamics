@@ -1,9 +1,15 @@
+/*
+ * -------------------------------------------
+ * Copyright (c) 2021 - 2025 Prashant K. Jha
+ * -------------------------------------------
+ * https://github.com/CEADpx/multiphysics-peridynamics
+ *
+ * Distributed under the Boost Software License, Version 1.0. (See accompanying
+ * file LICENSE)
+ */
 #pragma once
 
-#include <cmath>
 #include <memory>
-#include <string>
-#include <utility>
 #include <vector>
 #include <libmesh/point.h>
 #include "util.h"
@@ -42,7 +48,8 @@ Fracture(model::ThermomechanicalModel &model) : d_model(model) {};
 
 void initialize() {
     d_fracture.resize(d_model.d_mesh.n_nodes());
-    for (size_t i = 0; i < d_model.d_mesh.n_nodes(); i++) {
+    for (size_t loc_i = 0; loc_i < d_model.d_cm_p->d_owned_size; loc_i++) {
+        const auto& i = d_model.d_cm_p->d_owned_and_ghost_ids[loc_i];
         d_fracture[i].resize(d_model.d_neighbor_list[i].size(), 0);
     }
 };

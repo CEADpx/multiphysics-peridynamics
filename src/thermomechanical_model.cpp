@@ -1,7 +1,11 @@
 /*
  * -------------------------------------------
- * Copyright (c) 2021 - 2024 Prashant K. Jha
+ * Copyright (c) 2021 - 2025 Prashant K. Jha
  * -------------------------------------------
+ * https://github.com/CEADpx/multiphysics-peridynamics
+ *
+ * Distributed under the Boost Software License, Version 1.0. (See accompanying
+ * file LICENSE)
  */
 
 #include "thermomechanical_model.h"
@@ -77,9 +81,6 @@ void ThermomechanicalModel::initialize() {
   // Build neighbor list for all nodes
   setupNeighborList();
 
-  // Initialize fracture
-  d_fracture_p->initialize();
-
   // Setup ghost nodes for parallel computation
   setupGhostNodesAndCommunicator();
 
@@ -88,6 +89,9 @@ void ThermomechanicalModel::initialize() {
 
   // Compute weighted volume (done once)
   computeMx();
+
+  // Initialize fracture
+  d_fracture_p->initialize();
 }
 
 void ThermomechanicalModel::secondaryInitialize() {
@@ -278,16 +282,6 @@ void ThermomechanicalModel::setupNeighborList() {
           throw std::runtime_error("jj > max_node_id");
         }
         d_neighbor_volume[i].push_back(0.0);
-      }
-    }
-  }
-
-  // check the neighbor list comparing with d_mesh.max_node_id()
-  for (const auto& i : d_neighbor_list) {
-    for (const auto& j : i) {
-      if (j > d_mesh.max_node_id()) {
-        printf("j = %d, max_node_id = %d\n", j, d_mesh.max_node_id());
-        throw std::runtime_error("j > max_node_id");
       }
     }
   }

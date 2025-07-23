@@ -1,24 +1,22 @@
 /*
  * -------------------------------------------
- * Copyright (c) 2021 - 2024 Prashant K. Jha
+ * Copyright (c) 2021 - 2025 Prashant K. Jha
  * -------------------------------------------
+ * https://github.com/CEADpx/multiphysics-peridynamics
+ *
+ * Distributed under the Boost Software License, Version 1.0. (See accompanying
+ * file LICENSE)
  */
+#pragma once
 
-#ifndef THERMOMECHANICAL_MODEL_H
-#define THERMOMECHANICAL_MODEL_H
-
-// libMesh includes
-#include "heat_source.h"
 #include "libmesh_includes.h"
-
-// Local includes
 #include "material.h"
 #include "mpi_communicator.h"
 #include "io.h"
 #include "crack.h"
 
 namespace loading {
-  class HeatSource;
+  class HeatSourceCollection;
   class Loading;
 }
 
@@ -192,5 +190,3 @@ public:
 };
 
 } // namespace model
-
-#endif // THERMOMECHANICAL_MODEL_H 
